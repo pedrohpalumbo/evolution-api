@@ -178,8 +178,15 @@ export const statusMessageSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
   properties: {
-    type: { type: 'string', enum: ['text', 'image', 'audio', 'video'] },
-    content: { type: 'string' },
+    type: {
+      type: 'string',
+      enum: ['text', 'image', 'audio', 'video'],
+      description: '"type" is required and must be one of: text, image, audio, video',
+    },
+    content: {
+      type: 'string',
+      description: '"content" is required (status text, or URL/base64 of the media)',
+    },
     caption: { type: 'string' },
     backgroundColor: { type: 'string' },
     font: { type: 'integer', minimum: 0, maximum: 5 },
@@ -195,7 +202,7 @@ export const statusMessageSchema: JSONSchema7 = {
     },
     allContacts: { type: 'boolean', enum: [true, false] },
   },
-  required: ['type'],
+  required: ['type', 'content'],
 };
 
 export const stickerMessageSchema: JSONSchema7 = {

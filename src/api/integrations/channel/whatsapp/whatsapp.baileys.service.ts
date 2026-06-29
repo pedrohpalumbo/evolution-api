@@ -2691,7 +2691,7 @@ export class BaileysStartupService extends ChannelStartupService {
         throw new BadRequestException('Background color is required');
       }
 
-      if (!status.font) {
+      if (status.font === undefined || status.font === null) {
         throw new BadRequestException('Font is required');
       }
 
@@ -2701,17 +2701,33 @@ export class BaileysStartupService extends ChannelStartupService {
       };
     }
     if (status.type === 'image') {
-      return {
-        content: { image: { url: status.content }, caption: status.caption },
-        option: { statusJidList: status.statusJidList },
-      };
+      try {
+        const image = isURL(status.content)
+          ? { url: status.content }
+          : await sharp(Buffer.from(status.content, 'base64')).jpeg().toBuffer();
+
+        return {
+          content: { image, caption: status.caption },
+          option: { statusJidList: status.statusJidList },
+        };
+      } catch (error) {
+        this.logger.error(error);
+        throw new BadRequestException('Invalid image content. Provide a valid URL or base64 image.');
+      }
     }
 
     if (status.type === 'video') {
-      return {
-        content: { video: { url: status.content }, caption: status.caption },
-        option: { statusJidList: status.statusJidList },
-      };
+      try {
+        const video = isURL(status.content) ? { url: status.content } : Buffer.from(status.content, 'base64');
+
+        return {
+          content: { video, caption: status.caption },
+          option: { statusJidList: status.statusJidList },
+        };
+      } catch (error) {
+        this.logger.error(error);
+        throw new BadRequestException('Invalid video content. Provide a valid URL or base64 video.');
+      }
     }
 
     if (status.type === 'audio') {
