@@ -2255,23 +2255,20 @@ export class BaileysStartupService extends ChannelStartupService {
         msgId = firstMessage.key.id;
       }
 
-      if (batches.length === 0) return firstMessage;
+      if (batches.length === 0 || !firstMessage?.message) return firstMessage;
 
+      // Reuse the media already uploaded by the first send: relay the SAME generated message
+      // (identical mediaKey/directPath) to the remaining recipients. Re-sending the raw content
+      // per batch would re-upload and re-encrypt the media under a NEW random mediaKey while
+      // keeping the same messageId — which corrupts media status for the later batches
+      // ("error playing video") and makes the request slow by uploading the same file N times.
       await Promise.allSettled(
-        batches.map(async (batch) => {
-          const messageSent = await this.client.sendMessage(
-            sender,
-            message['status'].content as unknown as AnyMessageContent,
-            {
-              backgroundColor: message['status'].option.backgroundColor,
-              font: message['status'].option.font,
-              statusJidList: batch,
-              messageId: msgId,
-            } as unknown as MiscMessageGenerationOptions,
-          );
-
-          return messageSent;
-        }),
+        batches.map((batch) =>
+          this.client.relayMessage(sender, firstMessage.message, {
+            messageId: msgId,
+            statusJidList: batch,
+          } as any),
+        ),
       );
 
       return firstMessage;
