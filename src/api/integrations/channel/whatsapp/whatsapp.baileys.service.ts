@@ -2231,6 +2231,12 @@ export class BaileysStartupService extends ChannelStartupService {
         jidList = message['status'].option.statusJidList;
       }
 
+      // Baileys requires full JIDs (e.g. "<number>@s.whatsapp.net") in statusJidList to
+      // address the broadcast recipients. Numbers sent explicitly through the API arrive as
+      // bare digits, so normalize them here (this also fixes BR/MX/AR digit formatting).
+      // createJid is idempotent for values that already carry a server suffix (allContacts path).
+      jidList = [...new Set((jidList ?? []).filter(Boolean).map((jid: string) => createJid(jid)))];
+
       const batchSize = 10;
 
       const batches = Array.from({ length: Math.ceil(jidList.length / batchSize) }, (_, i) =>
