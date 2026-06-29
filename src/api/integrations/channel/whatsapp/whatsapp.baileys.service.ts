@@ -2220,22 +2220,14 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (sender === 'status@broadcast') {
-      let jidList;
-      if (message['status'].option.allContacts) {
-        const contacts = await this.prismaRepository.contact.findMany({
-          where: { instanceId: this.instanceId, remoteJid: { not: { endsWith: '@g.us' } } },
-        });
-
-        jidList = contacts.map((contact) => contact.remoteJid);
-      } else {
-        jidList = message['status'].option.statusJidList;
-      }
-
-      // Baileys requires full JIDs (e.g. "<number>@s.whatsapp.net") in statusJidList to
-      // address the broadcast recipients. Numbers sent explicitly through the API arrive as
-      // bare digits, so normalize them here (this also fixes BR/MX/AR digit formatting).
-      // createJid is idempotent for values that already carry a server suffix (allContacts path).
-      jidList = [...new Set((jidList ?? []).filter(Boolean).map((jid: string) => createJid(jid)))];
+      // statusJidList is already resolved in formatStatusMessage (including the allContacts
+      // case). Baileys requires full JIDs (e.g. "<number>@s.whatsapp.net") to address the
+      // broadcast recipients; numbers sent explicitly through the API arrive as bare digits,
+      // so normalize them here (this also fixes BR/MX/AR digit formatting). createJid is
+      // idempotent for values that already carry a server suffix.
+      const jidList = [
+        ...new Set((message['status'].option.statusJidList ?? []).filter(Boolean).map((jid: string) => createJid(jid))),
+      ];
 
       const batchSize = 10;
 
@@ -2679,13 +2671,26 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (status.allContacts) {
-      const contacts = await this.prismaRepository.contact.findMany({ where: { instanceId: this.instanceId } });
+      // A status broadcast can only be delivered to individual WhatsApp users.
+      // Restrict the query to "@s.whatsapp.net" JIDs so groups (@g.us), @lid and any
+      // malformed remoteJid are excluded up front — otherwise WhatsApp rejects the whole
+      // broadcast and the status fails to publish.
+      const contacts = await this.prismaRepository.contact.findMany({
+        where: {
+          instanceId: this.instanceId,
+          remoteJid: { endsWith: '@s.whatsapp.net' },
+        },
+      });
 
       if (!contacts.length) {
         throw new BadRequestException('Contacts not found');
       }
 
-      status.statusJidList = contacts.filter((contact) => contact.pushName).map((contact) => contact.remoteJid);
+      status.statusJidList = [
+        ...new Set(
+          contacts.filter((contact) => contact.pushName && contact.remoteJid).map((contact) => contact.remoteJid),
+        ),
+      ];
     }
 
     if (!status.statusJidList?.length && !status.allContacts) {
