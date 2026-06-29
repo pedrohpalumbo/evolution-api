@@ -2225,9 +2225,22 @@ export class BaileysStartupService extends ChannelStartupService {
       // broadcast recipients; numbers sent explicitly through the API arrive as bare digits,
       // so normalize them here (this also fixes BR/MX/AR digit formatting). createJid is
       // idempotent for values that already carry a server suffix.
+      //
+      // The instance owner's own JID must NOT be part of the audience: WhatsApp already
+      // fans the status out to the owner's other devices implicitly. Including it in
+      // statusJidList addresses the SAME messageId to the owner through two paths at once,
+      // which breaks playback on the owner's own phone ("error playing video") — this only
+      // shows up with allContacts, because that list is built from the contacts table and
+      // can contain the owner's own number.
+      const ownJid = this.instance.wuid ? createJid(this.instance.wuid) : null;
+
       const jidList = [
         ...new Set((message['status'].option.statusJidList ?? []).filter(Boolean).map((jid: string) => createJid(jid))),
-      ];
+      ].filter((jid) => jid !== ownJid);
+
+      this.logger.info(
+        `[STATUS] sending ${message['status'].type ?? 'media'} status to ${jidList.length} recipient(s) (own jid excluded: ${ownJid})`,
+      );
 
       const batchSize = 10;
 
@@ -2262,7 +2275,11 @@ export class BaileysStartupService extends ChannelStartupService {
       // per batch would re-upload and re-encrypt the media under a NEW random mediaKey while
       // keeping the same messageId — which corrupts media status for the later batches
       // ("error playing video") and makes the request slow by uploading the same file N times.
-      await Promise.allSettled(
+      this.logger.info(
+        `[STATUS] media uploaded once (msgId=${msgId}); relaying to ${batches.length} remaining batch(es)`,
+      );
+
+      const results = await Promise.allSettled(
         batches.map((batch) =>
           this.client.relayMessage(sender, firstMessage.message, {
             messageId: msgId,
@@ -2270,6 +2287,15 @@ export class BaileysStartupService extends ChannelStartupService {
           } as any),
         ),
       );
+
+      const failed = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+      if (failed.length) {
+        this.logger.error(
+          `[STATUS] ${failed.length}/${batches.length} batch relay(s) failed: ${failed
+            .map((f) => f.reason?.message ?? f.reason)
+            .join(' | ')}`,
+        );
+      }
 
       return firstMessage;
     }
